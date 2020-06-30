@@ -1,0 +1,479 @@
+---
+title: "Determining Predictors of a Portuguese Bank Marketing Campaign using Binary Logistic Regression"
+author: "Nkosi and Teddy"
+date: "December 10, 2019"
+output: 
+    word_document:
+      toc: yes
+---
+# Abstract
+
+The data being surved came from Kaggle.com under a dataset called Bank Marketing. It is related with direct marketing campaigns (phone calls) of a Portuguese banking institution. The marketing campaigns were based on number of phone calls. Often, more than one contact to the same client was required, in order to access if the product (bank term deposit) would be ('yes') or not ('no') subscribed. The dataset included all types of employees so for this study,it was narrowed to just 875 students and 1720 retired employees. A selection of 5 continous variables were used to try and predict if a customer would subscribe a term deposit.The variables are:
+
+Response Variable: y (term deposit) which is coded as 1 for yes and 0 for no 
+
+Predictor Variables: Age, Campaign (number of contacts performed during this campaign and for this client), Previous (number of contacts performed before this campaign and for this client), CCI(Consumer Confidence Index), NE(Number of Employees at the bank)
+
+The goal is to predict if the client will subscribe a term deposit (variable y). Also, we would like to find an optimal logistic regression model using these 5 predictor variables. The binary logistic regression model could then be utilized for helping the bank determine which sectors are doing well so that they could target their marketing campaigns to those industries. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Reading in the data
+library(readxl)
+bm <- read_excel("C:/Users/Nkosilenhle/Desktop/Project 2/BM.xlsx")
+
+attach(bm)
+
+ftable(y, campaign)
+ftable(y, previous)
+```
+
+
+#Data Characteristics
+
+The first frequency table shows that each customer was at least contacted once  or more during this campaign.  During the campaign, customers who were contacted the most see to have made a deposit during the campaign. The second frequency table indicates that each customer in the data table was contacted before the campaign started. Even before the marketing campaign started, a large majority of customers were already making deposits to the bank.
+
+
+#Exploratory Analysis
+
+Check distributions of the predictor variables
+```{r}
+library (tidyr)
+library (ggplot2)
+ggplot(gather(bm), aes(value)) + 
+  geom_histogram(bins = 8) + 
+  facet_wrap(~key, scales = 'free_x')
+```
+
+```{r fig.height=25, fig.width=25}
+plot(bm)
+```
+
+None of our continous predictor variables require a transformation.
+
+We can plot the individual variables below:
+
+```{r}
+barplot(table (ifelse (y==1,"Yes","No")), xlab="Term Deposit", ylab="# of Customers")
+```
+
+
+```{r}
+hist (age, xlab="Age, Years")
+```
+
+
+```{r}
+barplot(table (previous), xlab="# of Contacts Before Campaign", ylab= "# of Customers")
+```
+
+
+```{r}
+barplot(table (campaign), xlab="# of Contacts During Campaign", ylab= "# of Customers")
+```
+
+```{r}
+barplot(table (cci), xlab="Consumer Confidence Index", ylab= "# of Customers")
+```
+
+
+```{r}
+barplot(table (ne), xlab="Number of Employees", ylab= "# of Customers")
+```
+
+
+```{r}
+summary(previous)
+plot(previous, jitter(y,0.15))
+lines(lowess(y~previous),col="red")
+```
+
+
+#First Order logistic regression model
+
+A first-order binary logistic regression was fit using all 5 predictor variables.
+
+```{r}
+# Fitting the regression model
+y.logit <- glm(y ~ age + campaign + previous + cci + ne, family=binomial)
+summary(y.logit)
+exp (y.logit$coefficients)
+exp (confint (y.logit))
+```
+
+Campaign (number of contacts performed during this campaign and for this client), Previous (number of contacts performed before this campaign and for this client) and NE(Number of Employees) are significant predictors in the initial model. However, age of the customer and CCI(Consumer Confidence Index) are not significant predictor variables in the first order model. The probability of a customer having subscribed a term deposit is higher with customers who have been contacted during the marketing campaign, customers who were contacted before the campaign started and the number of employees at the bank at that time. Looking at it, the odds of subscribing a term deposit is 0.93 times higher for each extra phone call during the campaign, 1.1 times higher for each extra phone call before the campaign and 0.99 times higher with each additional employee at the bank. The 95% confidence interval for campaign is 0.87 to 0.98% higher odds of a term deposit per additional phone call during the campaign.The 95% confidence interval for previous is 1.05 to 1.32% higher odds of a term deposit per additional phone call before the campaign. The 95% confidence interval for number of employees at the bank is 0.9787 to 0.9905% higher odds of a term deposit per additional employee added to the bank.
+
+```{r}
+# plot the model with the data.
+predpr = predict (y.logit, type='response')
+predlogit = predict (y.logit)
+plot (jitter (y, 0.2) ~ predlogit, xlab="Predicted Logit",
+      ylab="Term Deposit, Observed and Probability")
+pred.ord = order (predlogit)
+lines (predlogit[pred.ord], predpr[pred.ord])
+```
+
+```{r}
+# ROC curve - install package ROCR
+par (mfrow=c(1,1))
+library(ROCR)
+pred1 <- prediction(y.logit$fitted.values, bm$y)
+perf1 <- performance(pred1,"tpr","fpr")
+auc1 <- performance(pred1,"auc")@y.values[[1]]
+auc1
+plot(perf1, lwd=2, col=2)
+abline(0,1)
+legend(0.5, 0.3, c(paste ("AUC=", round (auc1, 4), sep="")),   lwd=2, col=2)
+
+# Extract the X and Y values from the ROC plot, as well as the probability cutoffs
+roc.x = slot (perf1, "x.values") [[1]]
+roc.y = slot (perf1, "y.values") [[1]]
+cutoffs = slot (perf1, "alpha.values") [[1]]
+
+auc.table = cbind.data.frame(cutoff=pred1@cutoffs, tp=pred1@tp, fp=pred1@fp, tn=pred1@tn, fn=pred1@fn)
+names (auc.table) = c("Cutoff", "TP", "FP", "TN", "FN")
+auc.table$sensitivity = auc.table$TP / (auc.table$TP + auc.table$FN)
+auc.table$specificity = auc.table$TN / (auc.table$TN + auc.table$FP)
+auc.table$FalsePosRate = 1 - auc.table$specificity
+auc.table$sens_spec = auc.table$sensitivity + auc.table$specificity
+
+# Find the row(s) in the AUC table where sensitivity + specificity is maximized
+
+auc.best = auc.table [auc.table$sens_spec == max (auc.table$sens_spec),]
+auc.best
+
+# Plot the maximum point(s) on the ROC plot
+
+points (auc.best$FalsePosRate, auc.best$sensitivity, cex=1.3)
+```
+
+
+# Model Selection
+
+## Stepwise Regression on the first order model
+
+Following the plots, we apply step-wise regression to the first order model
+
+```{r}
+m2 = step (y.logit, direction='both')
+summary (m2)
+beta2 = coefficients(m2)
+exp (beta2)
+exp (confint (m2))
+```
+
+Age and Consumer COnfidence Index variables were removed from the model. The model with only 3 predictor variables has a lower AIC value which could mean that it is a better model. The significance of campaign, previous and number of employees seem closely related to the first order model.The odds of a term deposit is 0.87 to 0.98% higher per additional phone call during the campaign.The odds of a term deposit is 1.04 to 1.32% higher per additional phone call before the campaign. The odds of a term deposit is 0.9877 to 0.9035% higher per additional employee added to the bank.
+
+
+```{r}
+predpr = predict (m2, type='response')
+predlogit = predict (m2)
+plot (jitter (y, 0.2) ~ predlogit, xlab="Predicted Logit",
+      ylab="Term Deposit, Observed and Probability")
+pred.ord = order (predlogit)
+lines (predlogit[pred.ord], predpr[pred.ord])
+```
+
+We can also show a general plot of response vs predicted:
+
+
+```{r}
+predpr = predict (m2, type='response')
+predlogit = predict (m2)
+plot (jitter (y, 0.2) ~ predlogit, xlab="Predicted Logit",
+      ylab="Term Deposit, Observed and Probability")
+pred.ord = order (predlogit)
+lines (predlogit[pred.ord], predpr[pred.ord])
+```
+
+C
+
+```{r, fig.width=8, fig.height=5}
+par (mfrow=c(1,2))
+plot (m2, which=c(1,5))
+```
+
+Residual plots of m2 above seem to indicate that the model is relatively reasonable. With the first plot of Residuals vs Fitted, the fitted lowess line is close to 0 and relatively flat. With the second plot of Residuals vs Leverage, there is not a clear pattern in the data or many outliers in the data. The Cook's distance contours appear a little on the plot which indicates that there could be a few large values for the influence measure. 
+
+
+# Fit a model with interactions
+
+We fit a full model that consisted of all two-way interaction effects.
+
+
+```{r}
+bm$campaign.c = campaign - mean(campaign)
+bm$previous.c = previous - mean(previous)
+bm$ne.c = ne - mean(ne)
+bm$age.c = age - mean(age)
+bm$cci.c = cci - mean(cci)
+m3 = glm (y ~ (age.c + campaign.c + previous.c + cci.c + ne.c)^2, family=binomial, data=bm)
+summary (m3)
+exp (m3$coefficients)
+exp (confint (m3))
+```
+
+Centered campaign (number of phone calls done during the campaign), consumer confidence index, and number of employees are all statistically significant. The 2 interaction effects between centered previous (number of phone calls done before the campaign) and centered comsumer confidence index as well as centered consumer confidence index and centered number of employees at the bank are also significant in the model with interaction effects. 
+
+# Stepwise Regression
+
+Following this, we ran a step-wise regression on the full interaction model.
+
+```{r}
+# Stepwise with AIC criterion
+m.both = step (m3, directon='both')
+```
+
+The stepwise regression with the AIC criterion retained 4 interaction effects. These were age centered and centered consumer confidence index, centered campaign(number of phone calls done during the campaign) and centered number of employees, centered previous(number of phone calls done before the campaign) and centered consumer confidence index as well as centered consumer confidence index and centered number of employees. 
+
+```{r}
+summary(m.both)
+```
+
+All the predictor variables are statistically significant in the model except the centered age predictor variable. The above model has an AIC value of 2543.1 whereas the model previous had an AIC value of 2566.2. Therefore, the mdoel with the interation effects and centered variables is the better model as indicated by the AIC values. 
+
+```{r fig.height=5.5, fig.width=6.5}
+predpr = predict (m.both, type='response')
+predlogit = predict (m.both)
+plot (jitter (y, 0.2) ~ predlogit, xlab="Predicted Logit",
+      ylab="Term Deposit, Observed and Probability")
+pred.ord = order (predlogit)
+lines (predlogit[pred.ord], predpr[pred.ord])
+```
+
+```{r}
+categorize = function (x) {
+  quartiles = summary (x) [c(2, 3, 5)]
+  result = rep ("Q1", length (x))
+  result [which ((quartiles[1] < x) & (x <= quartiles [2]))] = "Q2"
+  result [which ((quartiles[2] < x) & (x <= quartiles [3]))] = "Q3"
+  result [which (quartiles[3] < x)] = "Q4"
+  return (result)
+}
+par (mfrow=c(1,1))
+cci.cat = categorize (cci)
+plot (jitter (y, 0.2) ~ ne, col=as.factor(cci.cat), xlab="Number of Employees", 
+      ylab="Term Deposit, Observed and Probability")
+
+fit.q1 = glm (y[cci.cat=="Q1"] ~ ne[cci.cat=="Q1"], family=binomial)
+fit.q2 = glm (y[cci.cat=="Q2"] ~ ne[cci.cat=="Q2"], family=binomial)
+fit.q3 = glm (y[cci.cat=="Q3"] ~ ne[cci.cat=="Q3"], family=binomial)
+fit.q4 = glm (y[cci.cat=="Q4"] ~ ne[cci.cat=="Q4"], family=binomial)
+
+cci.ord.1 = order (ne [cci.cat=="Q1"])
+cci.ord.2 = order (ne [cci.cat=="Q2"])
+cci.ord.3 = order (ne [cci.cat=="Q3"])
+cci.ord.4 = order (ne [cci.cat=="Q4"])
+
+lines (ne[cci.cat=="Q1"][cci.ord.1],  predict (fit.q1,  type='response')[cci.ord.1], col=1)
+lines (ne[cci.cat=="Q2"][cci.ord.2],  predict (fit.q2,  type='response')[cci.ord.2], col=2)
+lines (ne[cci.cat=="Q3"][cci.ord.3],  predict (fit.q3,  type='response')[cci.ord.3], col=3)
+lines (ne[cci.cat=="Q4"][cci.ord.4],  predict (fit.q4,  type='response')[cci.ord.4], col=4)
+
+legend (5125, 0.9, list("Q1", "Q2", "Q3","Q4"), lty=rep(1, 4), col=1:4, 
+        title="Cons. Conf. Idx", cex=0.8)
+```
+
+The above plot indicates the number of employees by consumer confidence index interaction effect. With consumer confidence index in Q1, the probablity of a term deposit decreases sigmoidally with the number of employees at the bank. With consumer confidence index in Q2, the probability of a term deposit decreases sigmoidally with the number of employees at the bank. With consumer confidence index in Q3, the probability of a term deposit decreases sigmoidally with the number of employees at the bank. With consumer confidence index in Q4, the probability of a term deposit decreases sigmoidally with  the number of employees at the bank.
+
+
+```{r}
+categorize = function (x) {
+  quartiles = summary (x) [c(2, 3, 5)]
+  result = rep ("Q1", length (x))
+  result [which ((quartiles[1] < x) & (x <= quartiles [2]))] = "Q2"
+  result [which ((quartiles[2] < x) & (x <= quartiles [3]))] = "Q3"
+  result [which (quartiles[3] < x)] = "Q4"
+  return (result)
+}
+par (mfrow=c(1,1))
+cci.cat = categorize (cci)
+plot (jitter (y, 0.2) ~ previous, col=as.factor(cci.cat), xlab="Previous", 
+      ylab="Term Deposit, Observed and Probability")
+
+fit.q1 = glm (y[cci.cat=="Q1"] ~ previous[cci.cat=="Q1"], family=binomial)
+fit.q2 = glm (y[cci.cat=="Q2"] ~ previous[cci.cat=="Q2"], family=binomial)
+fit.q3 = glm (y[cci.cat=="Q3"] ~ previous[cci.cat=="Q3"], family=binomial)
+fit.q4 = glm (y[cci.cat=="Q4"] ~ previous[cci.cat=="Q4"], family=binomial)
+
+cci.ord.1 = order (previous [cci.cat=="Q1"])
+cci.ord.2 = order (previous [cci.cat=="Q2"])
+cci.ord.3 = order (previous [cci.cat=="Q3"])
+cci.ord.4 = order (previous [cci.cat=="Q4"])
+
+lines (previous[cci.cat=="Q1"][cci.ord.1],  predict (fit.q1,  type='response')[cci.ord.1], col=1)
+lines (previous[cci.cat=="Q2"][cci.ord.2],  predict (fit.q2,  type='response')[cci.ord.2], col=2)
+lines (previous[cci.cat=="Q3"][cci.ord.3],  predict (fit.q3,  type='response')[cci.ord.3], col=3)
+lines (previous[cci.cat=="Q4"][cci.ord.4],  predict (fit.q4,  type='response')[cci.ord.4], col=4)
+
+legend (4.8, 0.475, list("Q1", "Q2", "Q3","Q4"), lty=rep(1, 4), col=1:4, 
+        title="Cons. Conf. Idx", cex=0.65)
+```
+
+The above plot indicates the previous(number of contacts performed before this campaign and for this client) by consumer confidence index interaction effect. With consumer confidence index in Q2, the probablity of a term deposit increases sigmoidally with the previous phone calls made. With consumer confidence index in Q1, the probability of a term deposit increases steadily with the previous phone calls made. With consumer confidence index in Q3, the probability of a term deposit increases sigmoidally with the previous phone calls made. With consumer confidence index in Q4, the probability of a term deposit increases steadily with  the previous phone calls made.  
+
+The table below shows us the odds ratios for the parameter estimates and their standard errors.
+
+```{r}
+cbind.data.frame (exp.beta = exp (m.both$coefficients), exp (as.data.frame (confint(m.both))))
+```
+
+We simply cannot interpret any of the effects of the predictor variables because they are all one way or another in an interaction. 
+
+
+# Model Diagnostics
+
+```{r}
+#------------------------Deviance test of lack of fit--------------------
+
+# First model
+pchisq(deviance(y.logit), df.residual(y.logit), lower=F)
+
+# Final model
+pchisq(deviance(m.both), df.residual(m.both), lower=F)
+```
+
+There is no significant lack of fit with both first and final model because the p value is greater than 0.05. 
+
+```{r}
+#Likelihood Ratio (LR) test statistic and P-value in R (multiple logistic regression):
+
+# First model
+
+1 - pchisq(y.logit$null.deviance - y.logit$deviance, 
+           y.logit$df.null - y.logit$df.residual)
+
+# Final model
+
+1 - pchisq(m.both$null.deviance - m.both$deviance, 
+           m.both$df.null - m.both$df.residual)
+```
+
+The first model and the final model both have significant effects on term deposit because p is less than 0.05.
+
+
+```{r}
+# Compare the final model with the reduced model 
+
+1 - pchisq(m2$deviance - m.both$deviance, 
+           m2$df.residual - m.both$df.residual)
+```
+
+m2 which is the reduced model is not significantly worse than the final model with the interaction effects. 
+
+
+# Residual Plots
+
+Below are the residual plots of the final model.
+
+```{r}
+# Residual plot
+par (mfrow=c(1,2))
+
+# The plot function applied to the fitted model object, selecting plots 1 and 5,
+# provides the necessary plots.
+plot (m.both, which = c(1,5))
+```
+
+
+The Residuals vs Fitted graph indicates that there is a reasonable fit due to the red Lowess line being relatively flat and close to zero. The Residuals vs Leverage graph shows us that there is also a reasonable fit because Cook's distance contour lines don't appear on the graph. There are no high leverage values and no large standardized residuals.
+
+```{r fig.height=6}
+# Influence diagnostics
+
+library(car)
+influenceIndexPlot(m.both)
+```
+
+Row 643 and 2588 have high Cook's distance but they are not above the 0.5 mark. Rows 384 and 2588 have the highest leverage values, but are not obvious outliers with respect to the rest of the leverage values.
+
+# Conclusion
+
+## ROC Curve
+
+```{r}
+# ROC curve - install package ROCR
+par (mfrow=c(1,1))
+library(ROCR)
+pred1 <- prediction(m.both$fitted.values, m.both$y)
+perf1 <- performance(pred1,"tpr","fpr")
+auc1 <- performance(pred1,"auc")@y.values[[1]]
+auc1
+plot(perf1, lwd=2, col=2)
+abline(0,1)
+legend(0.5, 0.3, c(paste ("AUC=", round (auc1, 4), sep="")),   lwd=2, col=2)
+
+# Extract the X and Y values from the ROC plot, as well as the probability cutoffs
+roc.x = slot (perf1, "x.values") [[1]]
+roc.y = slot (perf1, "y.values") [[1]]
+cutoffs = slot (perf1, "alpha.values") [[1]]
+
+auc.table = cbind.data.frame(cutoff=pred1@cutoffs, tp=pred1@tp, fp=pred1@fp, tn=pred1@tn, fn=pred1@fn)
+names (auc.table) = c("Cutoff", "TP", "FP", "TN", "FN")
+auc.table$sensitivity = auc.table$TP / (auc.table$TP + auc.table$FN)
+auc.table$specificity = auc.table$TN / (auc.table$TN + auc.table$FP)
+auc.table$FalsePosRate = 1 - auc.table$specificity
+auc.table$sens_spec = auc.table$sensitivity + auc.table$specificity
+
+# Find the row(s) in the AUC table where sensitivity + specificity is maximized
+
+auc.best = auc.table [auc.table$sens_spec == max (auc.table$sens_spec),]
+auc.best
+
+# Plot the maximum point(s) on the ROC plot
+
+points (auc.best$FalsePosRate, auc.best$sensitivity, cex=1.3)
+```
+
+
+The ROC curve indicates that the predictive nature of the model is much better than guessing because the AUC is larger than 0.5 at 0.7756. The optimal cutoff for classification is a fitted probability of 0.2487, which has a false positive rate  of 0.38, and a true positive rate of 0.82. The true positive rate value of 0.82 is seen in the graph above as the black circle.
+
+Following this, we can make some predictions looking at different ages relative to the other predictor variables in the model. 
+
+```{r}
+# With logistic regression, the predict function does not provide confidence limits, even
+# with the interval= option.  Instead, we request the se.fit=T option and calculate our own
+# limits on the logist scale, and then back-transform to the probability scale.
+
+preds = predict (m.both, se.fit = T)
+pred.df = cbind.data.frame (bm, as.data.frame (preds))
+
+pred.df$lwr = pred.df$fit - 1.96 * pred.df$se.fit
+pred.df$upr = pred.df$fit + 1.96 * pred.df$se.fit
+
+pred.df$fit.pr = round (exp (pred.df$fit) / (1 + exp (pred.df$fit)), 3)
+pred.df$lwr.pr = round (exp (pred.df$lwr) / (1 + exp (pred.df$lwr)), 3)
+pred.df$upr.pr = round (exp (pred.df$upr) / (1 + exp (pred.df$upr)), 3)
+
+pred.df [c(20,47,78,21,16,11,84, 48, 41, 51, 74, 58), c(2,3:7,12:20)]
+
+```
+
+The table above shows us some predicted probabilities as well as their confidence intervals for customers regarded as students or retired employees.
+
+The table below summarizes the observed and predicted classifications of term deposit.
+
+```{r}
+pred.df$pred.bm = ifelse (pred.df$fit.pr >= auc.best$Cutoff[1], "Pred.Yes", "Pred.No")
+table (pred.df$y, pred.df$pred.bm)
+```
+
+The model has shown us the probability of term deposit which can be predicted using Age, Campaign (number of contacts performed during this campaign and for this client), Previous (number of contacts performed before this campaign and for this client), CCI(Consumer Confidence Index), NE(Number of Employees). The binary logistic regression model could then be utilized for helping the bank determine which sectors are doing well so that they could target their marketing campaigns to those industries.
+
+Some future  questions to this analysis could include:
+1. Are there other factors that could be measured, that could improve the predictability of the model?
+2. How would catergorical variables affect the success of the final model and its interactions effects?
+
+
+
+
+
+
+
+
+
+
